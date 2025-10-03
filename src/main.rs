@@ -1,34 +1,62 @@
+use crossterm::style::{Color, ResetColor, SetForegroundColor};
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 
-fn format_line(parts: Vec<&str>) -> String {
-    let (date, hour, pid, tid, level, tag) = (
-        parts[0],
-        parts[1],
-        parts[2],
-        parts[3],
-        parts[4].to_string(),
-        parts[5],
-    );
-    let message = parts[6..].join(" ");
-
-    let formatted_pid = set_size(pid, 5);
-    let formatted_tid = set_size(tid, 5);
-    let formatted_tag = set_size(tag, 15);
-    let formatted_level = set_size(&level, 1);
-    let formatted_message = set_size(&message, 150);
-    let result = format!(
-        "{} {} [{}-{}] {} {} {}",
-        date, hour, formatted_pid, formatted_tid, formatted_tag, formatted_level, formatted_message,
-    );
-    return result;
+fn get_level_color(level: &str) -> Color {
+    match level {
+        "E" => Color::Red,
+        "W" => Color::Yellow,
+        "I" => Color::Green,
+        "D" => Color::Cyan,
+        "V" => Color::White,
+        _ => Color::White,
+    }
+}
+fn format_part(part: &str, size: usize, color: Option<Color>) -> String {
+    let padded = if part.len() > size {
+        part[..size].to_string()
+    } else {
+        format!("{:<width$}", part, width = size)
+    };
+    match color {
+        Some(c) => format!("{}{}{}", SetForegroundColor(c), padded, ResetColor),
+        None => padded,
+    }
 }
 
-fn set_size(part: &str, size: usize) -> String {
-    if part.len() > size {
-        return format!("{}", &part[..size]);
+fn format_line(parts: Vec<&str>) -> String {
+    if parts.len() < 6 {
+        return String::new();
     }
-    return format!("{:<padding$}", part, padding = size);
+
+    let date = parts[0];
+    let hour = parts[1];
+    let pid = parts[2];
+    let tid = parts[3];
+    let level = parts[4];
+    let tag = parts[5];
+    let message = parts[6..].join(" ");
+
+    let level_color = get_level_color(level);
+
+    let formatted_date = format_part(date, 10, None);
+    let formatted_hour = format_part(hour, 8, None);
+    let formatted_pid = format_part(pid, 5, None);
+    let formatted_tid = format_part(tid, 5, None);
+    let formatted_tag = format_part(tag, 15, None);
+    let formatted_level = format_part(level, 1, Some(level_color));
+    let formatted_message = format_part(&message, 150, Some(level_color));
+
+    format!(
+        "{} {} [{}-{}] {} {} {}",
+        formatted_date,
+        formatted_hour,
+        formatted_pid,
+        formatted_tid,
+        formatted_tag,
+        formatted_level,
+        formatted_message
+    )
 }
 
 fn main() {
