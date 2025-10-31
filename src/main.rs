@@ -23,6 +23,20 @@ fn format_part(part: &str, size: usize, color: Option<Color>) -> String {
         None => padded,
     }
 }
+//TODO: otimizar, usar um map de processos e usar adb shell apenas como fallback
+fn get_package(pid: &str) -> String {
+    let path = format!("/proc/{}/cmdline", pid);
+    let adb_shell = Command::new("adb")
+        .args(["shell", "cat", &path])
+        .output()
+        .expect("Failed to get package naem");
+    let package = String::from_utf8_lossy(&adb_shell.stdout)
+        .trim_matches(char::from(0))
+        .trim()
+        .to_string();
+
+    package
+}
 
 fn format_line(parts: Vec<&str>) -> String {
     if parts.len() < 6 {
@@ -36,24 +50,27 @@ fn format_line(parts: Vec<&str>) -> String {
     let level = parts[4];
     let tag = parts[5];
     let message = parts[6..].join(" ");
+    let package = get_package(pid);
 
     let level_color = get_level_color(level);
 
-    let formatted_date = format_part(date, 10, None);
+    let formatted_date = format_part(date, 5, None);
     let formatted_hour = format_part(hour, 8, None);
     let formatted_pid = format_part(pid, 5, None);
     let formatted_tid = format_part(tid, 5, None);
     let formatted_tag = format_part(tag, 15, None);
+    let formatted_package = format_part(&package, 15, None);
     let formatted_level = format_part(level, 1, Some(level_color));
     let formatted_message = format_part(&message, 150, Some(level_color));
 
     format!(
-        "{} {} [{}-{}] {} {} {}",
+        "{} {} [{}-{}] {} {} {} {}",
         formatted_date,
         formatted_hour,
         formatted_pid,
         formatted_tid,
         formatted_tag,
+        formatted_package,
         formatted_level,
         formatted_message
     )
