@@ -1,6 +1,8 @@
 use crossterm::style::{Color, ResetColor, SetForegroundColor};
-use std::io::{BufRead, BufReader};
+use std::collections::HashMap;
+use std::io::{self, BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
+use std::time::Instant;
 
 fn get_level_color(level: &str) -> Color {
     match level {
@@ -8,96 +10,110 @@ fn get_level_color(level: &str) -> Color {
         "W" => Color::Yellow,
         "I" => Color::Green,
         "D" => Color::Cyan,
-        "V" => Color::White,
-        _ => Color::White,
+        "V" | _ => Color::White,
     }
 }
-fn format_part(part: &str, size: usize, color: Option<Color>) -> String {
-    let padded = if part.len() > size {
-        part[..size].to_string()
+
+fn set_color(text: &str, color: Option<Color>) -> String {
+    color.map_or_else(
+        || text.to_string(),
+        |c| format!("{}{}{}", SetForegroundColor(c), text, ResetColor),
+    )
+}
+
+fn pad(text: &str, width: usize) -> String {
+    if text.len() > width {
+        text[..width].to_string()
     } else {
-        format!("{:<width$}", part, width = size)
-    };
-    match color {
-        Some(c) => format!("{}{}{}", SetForegroundColor(c), padded, ResetColor),
-        None => padded,
+        format!("{:<width$}", text, width = width)
     }
 }
-//TODO: otimizar, usar um map de processos e usar adb shell apenas como fallback
-fn get_package(pid: &str) -> String {
-    let path = format!("/proc/{}/cmdline", pid);
-    let adb_shell = Command::new("adb")
-        .args(["shell", "cat", &path])
-        .output()
-        .expect("Failed to get package naem");
-    let package = String::from_utf8_lossy(&adb_shell.stdout)
-        .trim_matches(char::from(0))
-        .trim()
-        .to_string();
+
+fn get_package(pid: &str, stdin: &mut impl Write, reader: &mut BufReader<impl io::Read>) -> String {
+    let start = Instant::now();
+
+    writeln!(stdin, "cat /proc/{}/cmdline", pid).expect("Failed to write to shell");
+    stdin.flush().expect("Failed to flush stdin");
+
+    let mut package = String::new();
+    let mut line = String::new();
+    if reader.read_line(&mut line).is_ok() {
+        package = line.trim_matches('\0').trim().to_string();
+    }
+    line.clear();
+
+    let time = start.elapsed();
+    println!("debug get_package time: {:?}", time);
 
     package
 }
 
-fn format_line(parts: Vec<&str>) -> String {
-    if parts.len() < 6 {
+fn format_line(
+    parts: &[&str],
+    stdin: &mut impl Write,
+    reader: &mut BufReader<impl io::Read>,
+    cache: &mut HashMap<String, String>,
+) -> String {
+    if parts.len() < 7 {
         return String::new();
     }
 
-    let date = parts[0];
-    let hour = parts[1];
-    let pid = parts[2];
-    let tid = parts[3];
+    let date = pad(parts[0], 5);
+    let time = pad(parts[1], 8);
+    let pid = pad(parts[2], 5);
+    let tid = pad(parts[3], 5);
     let level = parts[4];
-    let tag = parts[5];
+    let tag = pad(parts[5], 15);
+
+    let package = cache
+        .entry(parts[2].to_string())
+        .or_insert_with(|| get_package(parts[2], stdin, reader))
+        .clone();
+    let package = pad(&package, 15);
+
     let message = parts[6..].join(" ");
-    let package = get_package(pid);
-
     let level_color = get_level_color(level);
+    let level_colored = set_color(level, Some(level_color));
+    let msg_colored = set_color(&message, Some(level_color));
 
-    let formatted_date = format_part(date, 5, None);
-    let formatted_hour = format_part(hour, 8, None);
-    let formatted_pid = format_part(pid, 5, None);
-    let formatted_tid = format_part(tid, 5, None);
-    let formatted_tag = format_part(tag, 15, None);
-    let formatted_package = format_part(&package, 15, None);
-    let formatted_level = format_part(level, 1, Some(level_color));
-    let formatted_message = format_part(&message, 150, Some(level_color));
-
-    format!(
-        "{} {} [{}-{}] {} {} {} {}",
-        formatted_date,
-        formatted_hour,
-        formatted_pid,
-        formatted_tid,
-        formatted_tag,
-        formatted_package,
-        formatted_level,
-        formatted_message
-    )
+    format!("{date} {time} [{pid}-{tid}] {tag} {package} {level_colored} {msg_colored}")
 }
 
-fn main() {
+fn main() -> io::Result<()> {
     let mut child = Command::new("adb")
-        .arg("logcat")
+        .arg("shell")
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .spawn()
-        .expect("Failed to start adb process");
+        .stderr(Stdio::piped())
+        .spawn()?;
 
-    let stdout = child.stdout.take().expect("stdout capture error");
-    let reader = BufReader::new(stdout);
+    let stdin = child.stdin.as_mut().expect("Failed to open stdin");
+    let stdout = child.stdout.as_mut().expect("Failed to open stdout");
+    let mut reader = BufReader::new(stdout);
 
-    for line in reader.lines() {
-        match line {
-            Ok(line_string) => {
-                let parts: Vec<&str> = line_string.split_whitespace().collect();
-                if parts.len() < 6 {
-                    continue;
-                }
-                let formatted_line = format_line(parts);
+    writeln!(stdin, "logcat")?;
+    stdin.flush()?;
 
-                println!("{}", formatted_line);
-            }
-            Err(e) => eprintln!("Error reading line: {}", e),
+    let mut package_cache: HashMap<String, String> = HashMap::new();
+
+    let mut line = String::new();
+    while reader.read_line(&mut line).is_ok() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            line.clear();
+            continue;
         }
+
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        if parts.len() >= 7 {
+            println!(
+                "{}",
+                format_line(&parts, stdin, &mut reader, &mut package_cache)
+            );
+        }
+        line.clear();
     }
+
+    child.wait()?;
+    Ok(())
 }
