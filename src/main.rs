@@ -1,85 +1,85 @@
-// use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
-// use ratatui::{
-//     DefaultTerminal, Frame,
-//     buffer::Buffer,
-//     layout::Rect,
-//     style::Stylize,
-//     symbols::border,
-//     text::{Line, Text},
-//     widgets::{Block, Paragraph, Widget},
-// };
-// use std::io;
-// mod log;
-//
-// #[derive(Debug, Default)]
-// pub struct App {
-//     exit: bool,
-// }
-//
-// impl App {
-//     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
-//         terminal.draw(|frame| self.draw(frame))?;
-//         self.handle_events()?;
-//         Ok(())
-//     }
-//
-//     fn draw(&self, frame: &mut Frame) {
-//         Paragraph::new("Hello world teste").render(frame.area(), frame.buffer_mut());
-//     }
-//
-//     fn handle_events(&mut self) -> io::Result<()> {
-//         loop {
-//             if let Event::Key(key) = event::read()? {
-//                 match key.code {
-//                     event::KeyCode::Esc => {
-//                         break;
-//                     }
-//                     _ => {}
-//                 }
-//             }
-//         }
-//         Ok(())
-//     }
-// }
-//
-// fn main() -> io::Result<()> {
-//     let mut terminal = ratatui::init();
-//     let app_result = App::default().run(&mut terminal);
-//     ratatui::restore();
-//     app_result
-// }
-//
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
+use ratatui::{
+    DefaultTerminal, Frame,
+    buffer::Buffer,
+    layout::{Constraint, Layout, Rect},
+    style::{Color, Style, Stylize},
+    symbols::border,
+    text::{Line, Text},
+    widgets::{
+        Block, List, ListItem, ListState, Paragraph, ScrollbarOrientation, ScrollbarState,
+        StatefulWidget, Widget,
+    },
+};
+use std::io;
+
+use crate::log::LogEntry;
 mod log;
-// fn main() {
-//     let log_reader = match log::LogReader::new() {
-//         Ok(reader) => reader,
-//         Err(err) => {
-//             eprintln!("Erro ao criar LogReader: {}", err);
-//             return;
-//         }
-//     };
-//
-//     // Inicia o processo de leitura dos logs
-//     log_reader.start();
-//     println!("iniciado");
-//     loop {
-//         if let Some(log) = log_reader.next() {
-//             // Exibir ou processar o log
-//             println!("{:?}", log);
-//         }
-//     }
-// }
-fn main() -> std::io::Result<()> {
-    let mut log_reader = log::LogReader::new()?;
 
-    println!("Iniciando leitura de logs...");
+#[derive(Debug, Default)]
+pub struct App {
+    logs: Vec<LogEntry>,
+    list_state: ListState,
+    exit: bool,
+}
 
-    loop {
-        if let Some(entry) = log_reader.next() {
-            println!("{:?}", entry);
-            // ou faça o que quiser com a entrada
+impl App {
+    pub fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
+        let mut log_reader = log::LogReader::new()?;
+
+        while !self.exit {
+            while let Some(log) = log_reader.next() {
+                self.logs.push(log);
+            }
+
+            terminal.draw(|frame| self.draw(frame))?;
+
+            self.handle_event()?;
         }
-        // O loop bloqueia até chegar uma nova linha do logcat
-        // Se quiser adicionar um pequeno delay ou tratamento de interrupção, pode envolver com std::thread::sleep ou ctrl-c handler
+
+        Ok(())
+    }
+
+    fn handle_event(&mut self) -> io::Result<()> {
+        if event::poll(std::time::Duration::from_millis(0))? {
+            if let Event::Key(key) = event::read()? {
+                match key.code {
+                    KeyCode::Char(char) => match char {
+                        'q' => self.exit = true,
+                        'j' => self.list_state.select_next(),
+                        'k' => self.list_state.select_previous(),
+                        _ => {}
+                    },
+                    _ => {}
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn draw(&mut self, frame: &mut Frame) {
+        let [border_area] = Layout::vertical([Constraint::Fill(1)]).areas(frame.area());
+        let [inner_area] = Layout::vertical([Constraint::Fill(1)])
+            .margin(1)
+            .areas(border_area);
+
+        Block::bordered()
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .fg(Color::Blue)
+            .render(border_area, frame.buffer_mut());
+
+        let list = List::new(self.logs.iter().map(|l| ListItem::from(l.message.clone())))
+            .fg(Color::Yellow)
+            .highlight_style(Style::default().fg(Color::Red));
+
+        frame.render_stateful_widget(list, inner_area, &mut self.list_state);
     }
 }
+
+fn main() -> io::Result<()> {
+    let mut terminal = ratatui::init();
+    let app_result = App::default().run(&mut terminal);
+    ratatui::restore();
+    app_result
+}
+

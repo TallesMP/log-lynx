@@ -87,8 +87,6 @@ impl LogReader {
         stdin: &mut std::process::ChildStdin,
         stdout: &mut BufReader<std::process::ChildStdout>,
     ) -> Option<String> {
-        let start = Instant::now();
-
         if let Some(package) = cache.get(pid) {
             return Some(package.to_string());
         }
@@ -106,7 +104,6 @@ impl LogReader {
         } else {
             package.to_string()
         };
-        println!("get_package time: {:?}", start.elapsed());
         cache.insert(pid.to_string(), package.clone());
         Some(package)
     }
