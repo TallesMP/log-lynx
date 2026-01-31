@@ -19,6 +19,8 @@ pub struct LogEntry {
 
 pub struct LogReader {
     deque: Arc<Mutex<VecDeque<LogEntry>>>,
+    logcat: Option<Child>,
+    shell: Option<Child>,
 }
 
 impl LogReader {
@@ -58,23 +60,35 @@ impl LogReader {
 
             loop {
                 buffer.clear();
-                if reader.read_line(&mut buffer).is_ok() && !buffer.is_empty() {
-                    let line = buffer.trim();
-                    if let Some(entry) = Self::parse_line(
-                        line,
-                        &mut package_cache,
-                        &mut shell_stdin,
-                        &mut shell_stdout,
-                    ) {
-                        deque_ref.lock().unwrap().push_back(entry);
+                match reader.read_line(&mut buffer) {
+                    Ok(0) => {
+                        eprintln!("logcat stream ended");
+                        break;
                     }
-                } else {
-                    break;
+                    Ok(_) => {
+                        let line = buffer.trim();
+                        if let Some(entry) = Self::parse_line(
+                            line,
+                            &mut package_cache,
+                            &mut shell_stdin,
+                            &mut shell_stdout,
+                        ) {
+                            deque_ref.lock().unwrap().push_back(entry);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error reading logcat: {}", e);
+                        break;
+                    }
                 }
             }
         });
 
-        Ok(Self { deque })
+        Ok(Self {
+            deque,
+            logcat: Some(logcat),
+            shell: Some(shell),
+        })
     }
 
     pub fn next(&mut self) -> Option<LogEntry> {
@@ -144,6 +158,11 @@ impl LogReader {
 
 impl Drop for LogReader {
     fn drop(&mut self) {
-        // Thread será encerrada quando stdout fechar
+        if let Some(mut logcat) = self.logcat.take() {
+            let _ = logcat.kill();
+        }
+        if let Some(mut shell) = self.shell.take() {
+            let _ = shell.kill();
+        }
     }
 }
