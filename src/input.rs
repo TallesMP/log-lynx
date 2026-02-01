@@ -7,6 +7,7 @@ pub enum Action {
     ScrollUp,
     PageDown,
     PageUp,
+    GoToEnd,
     None,
 }
 
@@ -24,6 +25,7 @@ pub fn poll_input() -> io::Result<Action> {
             KeyCode::Char('q') => Action::Quit,
             KeyCode::Char('j') => Action::ScrollDown,
             KeyCode::Char('k') => Action::ScrollUp,
+            KeyCode::Char('G') => Action::GoToEnd,
             KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::PageDown,
             KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::PageUp,
             _ => Action::None,

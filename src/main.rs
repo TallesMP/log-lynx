@@ -56,6 +56,7 @@ impl App {
             input::Action::ScrollUp => self.list_state.select_previous(),
             input::Action::PageDown => self.list_state.scroll_down_by(half_page),
             input::Action::PageUp => self.list_state.scroll_up_by(half_page),
+            input::Action::GoToEnd => self.list_state.select_last(),
             input::Action::None => {}
         }
         Ok(())
