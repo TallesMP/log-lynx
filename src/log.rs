@@ -1,9 +1,10 @@
 use std::collections::{HashMap, VecDeque};
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Instant;
+
+use crate::device::Device;
 
 #[derive(Debug, Clone)]
 pub struct LogEntry {
@@ -18,15 +19,17 @@ pub struct LogEntry {
 }
 
 pub struct LogReader {
+    pub device: Device,
     deque: Arc<Mutex<VecDeque<LogEntry>>>,
     logcat: Option<Child>,
     shell: Option<Child>,
 }
 
 impl LogReader {
-    pub fn new() -> io::Result<Self> {
+    pub fn new(device: Device) -> io::Result<Self> {
         let mut logcat = Command::new("adb")
-            .arg("shell")
+            .arg("-s")
+            .arg(&device.serial)
             .arg("logcat")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -39,6 +42,8 @@ impl LogReader {
             .expect("Failed to open stdout of logcat");
 
         let mut shell = Command::new("adb")
+            .arg("-s")
+            .arg(&device.serial)
             .arg("shell")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -85,6 +90,7 @@ impl LogReader {
         });
 
         Ok(Self {
+            device,
             deque,
             logcat: Some(logcat),
             shell: Some(shell),

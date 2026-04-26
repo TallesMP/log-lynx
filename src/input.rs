@@ -8,29 +8,32 @@ pub enum Action {
     PageDown,
     PageUp,
     GoToEnd,
+    OpenFilter,
+    Confirm,
     None,
 }
 
 pub fn poll_input() -> io::Result<Action> {
-    if !event::poll(std::time::Duration::from_millis(16))? {
-        return Ok(Action::None);
-    }
+    let mut last = Action::None;
 
-    if let Event::Key(key) = event::read()? {
-        if key.kind != KeyEventKind::Press {
-            return Ok(Action::None);
+    while event::poll(std::time::Duration::ZERO)? {
+        if let Event::Key(key) = event::read()? {
+            if key.kind != KeyEventKind::Press {
+                continue;
+            }
+            last = match key.code {
+                KeyCode::Char('q') => Action::Quit,
+                KeyCode::Char('j') | KeyCode::Down => Action::ScrollDown,
+                KeyCode::Char('k') | KeyCode::Up => Action::ScrollUp,
+                KeyCode::Char('G') => Action::GoToEnd,
+                KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::PageDown,
+                KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::PageUp,
+                KeyCode::Char('/') => Action::OpenFilter,
+                KeyCode::Enter => Action::Confirm,
+                _ => continue,
+            };
         }
-
-        return Ok(match key.code {
-            KeyCode::Char('q') => Action::Quit,
-            KeyCode::Char('j') => Action::ScrollDown,
-            KeyCode::Char('k') => Action::ScrollUp,
-            KeyCode::Char('G') => Action::GoToEnd,
-            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::PageDown,
-            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::PageUp,
-            _ => Action::None,
-        });
     }
 
-    Ok(Action::None)
+    Ok(last)
 }
